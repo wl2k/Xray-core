@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: WaterLemons2k/scheduled-workflow-activity-action@v2
 
+      - name: Checkout
+        uses: actions/checkout@v7
       - name: Merge upstream
         id: merge
         run: |
