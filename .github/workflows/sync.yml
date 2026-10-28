@@ -1,0 +1,43 @@
+name: Sync
+
+on:
+  schedule:
+    - cron: '30 22 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  UPSTREAM: XTLS/Xray-core
+
+jobs:
+  sync:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: WaterLemons2k/scheduled-workflow-activity-action@v2
+
+      - name: Sync from upstream
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh repo sync "$GITHUB_REPOSITORY" --source "$UPSTREAM"; then
+            echo 'synced=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'synced=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::gh repo sync failed (likely diverged)'
+          fi
+
+      - name: Push clean merge
+        if: steps.sync.outputs.synced == 'false' && steps.merge.outputs.conflict == 'false'
+        run: git push origin HEAD:main
+
+      - name: Open conflict PR
+        if: steps.sync.outputs.synced == 'false' && steps.merge.outputs.conflict == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: sync/upstream
+          delete-branch: true
+          title: 'chore: sync upstream'
