@@ -16,11 +16,11 @@ env:
 jobs:
   sync:
     runs-on: ubuntu-slim
+    timeout-minutes: 15
     steps:
       - uses: WaterLemons2k/scheduled-workflow-activity-action@v2
 
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 100
       - name: Merge upstream
@@ -34,18 +34,30 @@ jobs:
 
           git fetch --force upstream main:refs/remotes/upstream/main
 
-          if git merge --no-edit upstream/main; then
-            echo 'conflict=false' >> "$GITHUB_OUTPUT"
-          elif [ -n "$(git ls-files -u)" ]; then
-            echo 'conflict=true' >> "$GITHUB_OUTPUT"
-
-            # Mark conflicts as resolved without removing the markers, so the
-            # half-merged tree becomes reviewable PR content.
-            git add -A
-            git commit -m 'chore: sync upstream XTLS/Xray-core (unresolved conflicts)'
-          else
+          if git merge --no-commit --no-ff upstream/main; then
+            :
+          elif [ -z "$(git ls-files -u)" ]; then
             echo '::error::git merge failed for a reason other than conflicts'
             exit 1
+          fi
+
+          # Keep this fork's own workflow files: the sync commit must not add or
+          # modify .github/workflows/*, otherwise GITHUB_TOKEN is rejected with
+          # "refusing to allow a GitHub App to create or update workflow ...".
+          git rm -r -q -f --cached --ignore-unmatch .github/workflows
+          git checkout HEAD -- .github/workflows
+          git clean -fdq .github/workflows
+
+          if [ -n "$(git ls-files -u)" ]; then
+            echo 'conflict=true' >> "$GITHUB_OUTPUT"
+            git add -A
+            git commit --no-edit
+          elif ! git diff --cached --quiet; then
+            echo 'conflict=false' >> "$GITHUB_OUTPUT"
+            git commit --no-edit
+          else
+            echo 'conflict=none' >> "$GITHUB_OUTPUT"
+            git merge --abort 2>/dev/null || true
           fi
 
       - name: Push clean merge
@@ -54,8 +66,8 @@ jobs:
 
       - name: Open conflict PR
         if: steps.merge.outputs.conflict == 'true'
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@v8.1.1
         with:
           branch: sync/upstream
           delete-branch: true
-          title: 'chore: sync upstream'
+          title: 'chore: sync upstream XTLS/Xray-core (merge conflicts)'
