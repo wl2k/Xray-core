@@ -19,24 +19,37 @@ jobs:
     steps:
       - uses: WaterLemons2k/scheduled-workflow-activity-action@v2
 
-      - name: Sync from upstream
-        id: sync
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Merge upstream
+        id: merge
         run: |
-          if gh repo sync "$GITHUB_REPOSITORY" --source "$UPSTREAM"; then
-            echo 'synced=true' >> "$GITHUB_OUTPUT"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git remote add upstream "https://github.com/${UPSTREAM}.git" 2>/dev/null \
+            || git remote set-url upstream "https://github.com/${UPSTREAM}.git"
+
+          git fetch --force upstream main:refs/remotes/upstream/main
+
+          if git merge --no-edit upstream/main; then
+            echo 'conflict=false' >> "$GITHUB_OUTPUT"
+          elif [ -n "$(git ls-files -u)" ]; then
+            echo 'conflict=true' >> "$GITHUB_OUTPUT"
+
+            # Mark conflicts as resolved without removing the markers, so the
+            # half-merged tree becomes reviewable PR content.
+            git add -A
+            git commit -m 'chore: sync upstream XTLS/Xray-core (unresolved conflicts)'
           else
-            echo 'synced=false' >> "$GITHUB_OUTPUT"
-            echo '::warning::gh repo sync failed (likely diverged)'
+            echo '::error::git merge failed for a reason other than conflicts'
+            exit 1
           fi
 
       - name: Push clean merge
-        if: steps.sync.outputs.synced == 'false' && steps.merge.outputs.conflict == 'false'
+        if: steps.merge.outputs.conflict == 'false'
         run: git push origin HEAD:main
 
       - name: Open conflict PR
-        if: steps.sync.outputs.synced == 'false' && steps.merge.outputs.conflict == 'true'
+        if: steps.merge.outputs.conflict == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           branch: sync/upstream
