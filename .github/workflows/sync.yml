@@ -50,7 +50,7 @@ jobs:
 
       - name: Push clean merge
         if: steps.merge.outputs.conflict == 'false'
-        run: git push origin HEAD:main
+        run: git push --tags
 
       - name: Open conflict PR
         if: steps.merge.outputs.conflict == 'true'
