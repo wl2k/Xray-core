@@ -36,35 +36,24 @@ jobs:
           git fetch upstream main:refs/remotes/upstream/main
 
           BASE="$(git rev-parse HEAD)"
+          MERGE_BASE="$(git merge-base HEAD upstream/main)"
+          UPSTREAM_PATCH="$RUNNER_TEMP/upstream-without-workflows.patch"
 
-          # Attempt the merge. Conflicts will be handled below.
-          if git merge --no-commit --no-ff upstream/main; then
-            :
-          elif [ -z "$(git ls-files -u)" ]; then
-            echo '::error::Git merge failed for a reason other than conflicts'
-            exit 1
+          # Start a merge that keeps the current tree, then apply only the
+          # non-workflow portion of upstream.  Excluding workflow paths before
+          # applying changes prevents modify/delete conflicts such as a locally
+          # deleted workflow that upstream has modified.
+          git merge --no-commit --no-ff -s ours upstream/main
+
+          git diff --binary "$MERGE_BASE" upstream/main -- \
+            . ':(exclude).github/workflows/**' > "$UPSTREAM_PATCH"
+
+          if ! git apply --index --3way "$UPSTREAM_PATCH"; then
+            if [ -z "$(git ls-files -u)" ]; then
+              echo '::error::Unable to apply upstream changes'
+              exit 1
+            fi
           fi
-
-          # Remove workflow paths from the index, including conflict stages.
-          git rm -r -f --cached --ignore-unmatch .github/workflows/ || true
-
-          # Restore the local workflows and discard upstream workflow changes.
-          git checkout "$BASE" -- .github/workflows/ 2>/dev/null || true
-
-          # Remove untracked workflow files introduced by upstream.
-          git clean -fdq -- .github/workflows/
-
-          # Remove any remaining unmerged workflow index entries.
-          while IFS= read -r path; do
-            [ -z "$path" ] || git update-index --force-remove -- "$path"
-          done < <(
-            git ls-files -u -- .github/workflows/ |
-              awk '{print $4}' |
-              sort -u
-          )
-
-          # Stage the resolved merge result.
-          git add -A
 
           # Only remaining conflicts outside workflows determine the result.
           if [ -n "$(git ls-files -u)" ]; then
