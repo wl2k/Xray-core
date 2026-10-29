@@ -48,15 +48,13 @@ jobs:
           # Remove workflow paths from the index, including conflict stages.
           git rm -r -f --cached --ignore-unmatch .github/workflows/ || true
 
-          # Restore the workflows from the original local commit.
-          if git ls-tree -r --name-only "$BASE" -- .github/workflows/ | grep -q .; then
-            git checkout "$BASE" -- .github/workflows/
-          fi
+          # Restore the local workflows and discard upstream workflow changes.
+          git checkout "$BASE" -- .github/workflows/ 2>/dev/null || true
 
           # Remove untracked workflow files introduced by upstream.
           git clean -fdq -- .github/workflows/
 
-          # Ensure no workflow conflict entries remain.
+          # Remove any remaining unmerged workflow index entries.
           while IFS= read -r path; do
             [ -z "$path" ] || git update-index --force-remove -- "$path"
           done < <(
