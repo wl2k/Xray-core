@@ -32,7 +32,7 @@ jobs:
           git remote add upstream "https://github.com/${UPSTREAM}.git" 2>/dev/null \
             || git remote set-url upstream "https://github.com/${UPSTREAM}.git"
 
-          git fetch --force upstream main:refs/remotes/upstream/main
+          git fetch upstream main:refs/remotes/upstream/main
 
           if git merge --no-commit --no-ff upstream/main; then
             :
@@ -41,12 +41,9 @@ jobs:
             exit 1
           fi
 
-          # Keep this fork's own workflow files: the sync commit must not add or
-          # modify .github/workflows/*, otherwise GITHUB_TOKEN is rejected with
-          # "refusing to allow a GitHub App to create or update workflow ...".
-          git rm -r -q -f --cached --ignore-unmatch .github/workflows
-          git checkout HEAD -- .github/workflows
-          git clean -fdq .github/workflows
+          # Restore this fork's own workflows.
+          git checkout HEAD -- .github/workflows/ 2>/dev/null || true
+          git clean -fdq -- .github/workflows/
 
           if [ -n "$(git ls-files -u)" ]; then
             echo 'conflict=true' >> "$GITHUB_OUTPUT"
@@ -60,9 +57,31 @@ jobs:
             git merge --abort 2>/dev/null || true
           fi
 
-      - name: Push clean merge
+      - name: Push clean main
         if: steps.merge.outputs.conflict == 'false'
-        run: git push --tags
+        run: git push origin HEAD:main
+
+      - name: Fetch upstream tags
+        if: steps.merge.outputs.conflict == 'false'
+        run: |
+          git fetch --force upstream \
+            '+refs/tags/*:refs/tags/*'
+
+      - name: Remove workflows from tag histories
+        if: steps.merge.outputs.conflict == 'false'
+        run: |
+          python3 -m pip install --disable-pip-version-check git-filter-repo
+
+          # Rewrite tag histories only. Do not rewrite main.
+          git filter-repo --force \
+            --refs refs/tags/* \
+            --path .github/workflows/ \
+            --invert-paths
+
+      - name: Push sanitized tags
+        if: steps.merge.outputs.conflict == 'false'
+        run: |
+          git push origin 'refs/tags/*:refs/tags/*'
 
       - name: Open conflict PR
         if: steps.merge.outputs.conflict == 'true'
