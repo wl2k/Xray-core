@@ -84,67 +84,103 @@ jobs:
           git push origin 'refs/tags/*:refs/tags/*'
 
       - name: Prepare conflict PR
+        id: prepare-pr
         if: steps.merge.outputs.conflict == 'true'
         run: |
-          # Preserve the completed merge result before resetting main.
-          MERGE_RESULT="$(git rev-parse HEAD)"
-
           git fetch origin main
           BASE="$(git rev-parse origin/main)"
+          MERGE_RESULT="$(git rev-parse HEAD)"
 
-          # Build a patch containing all changes except workflows.
+          # Save all commit messages before changing the branch history.
+          git log --reverse --format='--- %h ---%n%B' \
+            "$BASE..$MERGE_RESULT" \
+            > "$RUNNER_TEMP/sync-commit-messages.txt"
+
+          git log --reverse --format='- %h %s' \
+            "$BASE..$MERGE_RESULT" \
+            > "$RUNNER_TEMP/sync-commit-list.txt"
+
+          # Prepare the PR body in both cases.
+          {
+            echo '## Included $(wc -l < "$RUNNER_TEMP/sync-commit-list.txt") commits'
+            echo
+            cat "$RUNNER_TEMP/sync-commit-list.txt"
+
+            echo
+            echo '## Notes'
+            echo
+            echo 'Workflow files are excluded from the sync changes.'
+          } > "$RUNNER_TEMP/sync-pr-body.md"
+
+          # Detect workflow changes anywhere in the commits being pushed,
+          # even if later commits reverted those changes.
+          WORKFLOW_PATHS="$(
+            git log --full-history --format= --name-only \
+              "$BASE..$MERGE_RESULT" -- .github/workflows/
+          )"
+
+          if [ -z "$WORKFLOW_PATHS" ]; then
+            echo '::notice::No workflow paths in commit history; preserving original commits'
+            echo 'create_pr=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo '::notice::Workflow paths found in commit history; rebuilding a single-commit PR branch'
+
+          # Preserve the final non-workflow changes as a binary-capable patch.
           git diff --binary "$BASE" "$MERGE_RESULT" \
             -- . ':(exclude).github/workflows/**' \
             > "$RUNNER_TEMP/sync.patch"
 
-          # Rebuild main from the remote base, removing upstream history
-          # from the commits that will be pushed by create-pull-request.
+          # Reset the local branch to the actual PR base.
           git checkout main
           git reset --hard "$BASE"
 
-          # Apply only the filtered changes.
+          # Apply only non-workflow changes.
           if [ -s "$RUNNER_TEMP/sync.patch" ]; then
             git apply --index "$RUNNER_TEMP/sync.patch"
           fi
 
-          # Verify that no workflow paths are staged or modified.
-          if ! git diff --cached --quiet -- .github/workflows/; then
-            echo "::error::Workflow changes remain in the PR"
-            exit 1
+          # Do not create an empty PR if all changes were workflows.
+          if git diff --cached --quiet; then
+            echo '::notice::No non-workflow changes remain; skipping PR'
+            echo 'create_pr=false' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          if ! git diff --quiet -- .github/workflows/; then
-            echo "::error::Unstaged workflow changes remain"
-            exit 1
-          fi
+          # Include every original commit message in the new commit message.
+          {
+            echo 'chore: sync upstream XTLS/Xray-core (conflict resolution)'
+            echo
+            echo 'Included original commit messages:'
+            echo
+            cat "$RUNNER_TEMP/sync-commit-messages.txt"
+          } > "$RUNNER_TEMP/sync-single-commit-message.txt"
 
-          # Create a single commit based directly on origin/main.
-          if ! git diff --cached --quiet; then
-            git -c user.name='github-actions[bot]' \
-                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-                commit -m "chore: sync upstream XTLS/Xray-core (conflict resolution)"
-          else
-            echo "::notice::No non-workflow changes to include in PR"
-          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -F "$RUNNER_TEMP/sync-single-commit-message.txt"
 
-          # Verify the resulting commit ancestry and changed paths.
+          # Verify the new commit is directly based on origin/main.
           if [ "$(git rev-parse HEAD^)" != "$BASE" ]; then
-            echo "::error::PR commit is not based directly on origin/main"
+            echo '::error::Single commit is not directly based on origin/main'
             exit 1
           fi
 
+          # Verify that the resulting commit does not modify workflow paths.
           if git diff-tree --no-commit-id --name-only -r HEAD \
             | grep -q '^\.github/workflows/'; then
-            echo "::error::PR commit modifies workflow files"
+            echo '::error::Workflow changes remain in the new commit'
             exit 1
           fi
 
-          echo "Prepared clean PR commit: $(git rev-parse HEAD)"
+          echo 'create_pr=true' >> "$GITHUB_OUTPUT"
 
       - name: Open conflict PR
-        if: steps.merge.outputs.conflict == 'true'
+        if: steps.prepare-pr.outputs.create_pr == 'true'
         uses: peter-evans/create-pull-request@v8.1.1
         with:
           branch: sync/upstream
           delete-branch: true
-          title: 'chore: sync upstream XTLS/Xray-core (merge conflicts)'
+          title: 'chore: sync upstream XTLS/Xray-core (conflict resolution)'
+          body-path: ${{ runner.temp }}/sync-pr-body.md
