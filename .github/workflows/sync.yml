@@ -86,21 +86,60 @@ jobs:
       - name: Prepare conflict PR
         if: steps.merge.outputs.conflict == 'true'
         run: |
-          # Restore tracked workflow files to the base branch version.
+          # Preserve the completed merge result before resetting main.
+          MERGE_RESULT="$(git rev-parse HEAD)"
+
           git fetch origin main
-          git checkout origin/main -- .github/workflows/ 2>/dev/null || true
+          BASE="$(git rev-parse origin/main)"
 
-          # Remove untracked workflow files.
-          git clean -fdq -- .github/workflows/
+          # Build a patch containing all changes except workflows.
+          git diff --binary "$BASE" "$MERGE_RESULT" \
+            -- . ':(exclude).github/workflows/**' \
+            > "$RUNNER_TEMP/sync.patch"
 
-          # Stage all remaining changes.
-          git add -A
+          # Rebuild main from the remote base, removing upstream history
+          # from the commits that will be pushed by create-pull-request.
+          git checkout main
+          git reset --hard "$BASE"
 
-          # Fail closed if any workflow path remains changed.
+          # Apply only the filtered changes.
+          if [ -s "$RUNNER_TEMP/sync.patch" ]; then
+            git apply --index "$RUNNER_TEMP/sync.patch"
+          fi
+
+          # Verify that no workflow paths are staged or modified.
           if ! git diff --cached --quiet -- .github/workflows/; then
-            echo "::error::Workflow changes remain; refusing to create PR"
+            echo "::error::Workflow changes remain in the PR"
             exit 1
           fi
+
+          if ! git diff --quiet -- .github/workflows/; then
+            echo "::error::Unstaged workflow changes remain"
+            exit 1
+          fi
+
+          # Create a single commit based directly on origin/main.
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m "chore: sync upstream XTLS/Xray-core (conflict resolution)"
+          else
+            echo "::notice::No non-workflow changes to include in PR"
+          fi
+
+          # Verify the resulting commit ancestry and changed paths.
+          if [ "$(git rev-parse HEAD^)" != "$BASE" ]; then
+            echo "::error::PR commit is not based directly on origin/main"
+            exit 1
+          fi
+
+          if git diff-tree --no-commit-id --name-only -r HEAD \
+            | grep -q '^\.github/workflows/'; then
+            echo "::error::PR commit modifies workflow files"
+            exit 1
+          fi
+
+          echo "Prepared clean PR commit: $(git rev-parse HEAD)"
 
       - name: Open conflict PR
         if: steps.merge.outputs.conflict == 'true'
