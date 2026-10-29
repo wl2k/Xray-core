@@ -34,33 +34,31 @@ jobs:
 
           git fetch upstream main:refs/remotes/upstream/main
 
-          # Record the original branch state.
           BASE="$(git rev-parse HEAD)"
 
-          # Merge upstream.
+          # Attempt the merge, allowing genuine conflicts to be handled below.
           if git merge --no-commit --no-ff upstream/main; then
             :
           elif [ -z "$(git ls-files -u)" ]; then
-            echo '::error::git merge failed for a reason other than conflicts'
+            echo '::error::Git merge failed for a reason other than conflicts'
             exit 1
           fi
 
-          # Discard all upstream changes and conflicts under workflows.
-          # Restore tracked files from the original local commit.
-          git restore --source="$BASE" --staged --worktree -- .github/workflows/ || true
+          # Remove workflow paths from the index, including unmerged entries.
+          git rm -r -f --cached --ignore-unmatch .github/workflows/ || true
+
+          # Restore the local version of tracked workflow files.
+          git checkout "$BASE" -- .github/workflows/ 2>/dev/null || true
 
           # Remove untracked workflow files introduced by upstream.
           git clean -fdq -- .github/workflows/
 
-          # Remove any remaining unmerged index entries under workflows.
-          git ls-files -u -- .github/workflows/ |
-            awk '{print $4}' |
-            sort -u |
-            while IFS= read -r path; do
-              git update-index --force-remove -- "$path"
-            done
+          # Never continue if workflow conflicts remain.
+          if [ -n "$(git ls-files -u -- .github/workflows/)" ]; then
+            echo '::error::Workflow conflicts remain after cleanup'
+            exit 1
+          fi
 
-          # Check for remaining conflicts.
           if [ -n "$(git ls-files -u)" ]; then
             echo 'conflict=true' >> "$GITHUB_OUTPUT"
             git add -A
@@ -173,9 +171,7 @@ jobs:
             cat "$RUNNER_TEMP/sync-commit-messages.txt"
           } > "$RUNNER_TEMP/sync-single-commit-message.txt"
 
-          git -c user.name='github-actions[bot]' \
-              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -F "$RUNNER_TEMP/sync-single-commit-message.txt"
+          git commit -F "$RUNNER_TEMP/sync-single-commit-message.txt"
 
           # Verify the new commit is directly based on origin/main.
           if [ "$(git rev-parse HEAD^)" != "$BASE" ]; then
