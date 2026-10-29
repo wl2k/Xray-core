@@ -83,6 +83,25 @@ jobs:
         run: |
           git push origin 'refs/tags/*:refs/tags/*'
 
+      - name: Prepare conflict PR
+        if: steps.merge.outputs.conflict == 'true'
+        run: |
+          # Restore tracked workflow files to the base branch version.
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/ 2>/dev/null || true
+
+          # Remove untracked workflow files.
+          git clean -fdq -- .github/workflows/
+
+          # Stage all remaining changes.
+          git add -A
+
+          # Fail closed if any workflow path remains changed.
+          if ! git diff --cached --quiet -- .github/workflows/; then
+            echo "::error::Workflow changes remain; refusing to create PR"
+            exit 1
+          fi
+
       - name: Open conflict PR
         if: steps.merge.outputs.conflict == 'true'
         uses: peter-evans/create-pull-request@v8.1.1
