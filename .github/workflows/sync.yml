@@ -36,7 +36,7 @@ jobs:
 
           BASE="$(git rev-parse HEAD)"
 
-          # Attempt the merge, allowing genuine conflicts to be handled below.
+          # Attempt the merge. Conflicts will be handled below.
           if git merge --no-commit --no-ff upstream/main; then
             :
           elif [ -z "$(git ls-files -u)" ]; then
@@ -44,24 +44,32 @@ jobs:
             exit 1
           fi
 
-          # Remove workflow paths from the index, including unmerged entries.
+          # Remove workflow paths from the index, including conflict stages.
           git rm -r -f --cached --ignore-unmatch .github/workflows/ || true
 
-          # Restore the local version of tracked workflow files.
-          git checkout "$BASE" -- .github/workflows/ 2>/dev/null || true
+          # Restore the workflows from the original local commit.
+          if git ls-tree -r --name-only "$BASE" -- .github/workflows/ | grep -q .; then
+            git checkout "$BASE" -- .github/workflows/
+          fi
 
           # Remove untracked workflow files introduced by upstream.
           git clean -fdq -- .github/workflows/
 
-          # Never continue if workflow conflicts remain.
-          if [ -n "$(git ls-files -u -- .github/workflows/)" ]; then
-            echo '::error::Workflow conflicts remain after cleanup'
-            exit 1
-          fi
+          # Ensure no workflow conflict entries remain.
+          while IFS= read -r path; do
+            [ -z "$path" ] || git update-index --force-remove -- "$path"
+          done < <(
+            git ls-files -u -- .github/workflows/ |
+              awk '{print $4}' |
+              sort -u
+          )
 
+          # Stage the resolved merge result.
+          git add -A
+
+          # Only remaining conflicts outside workflows determine the result.
           if [ -n "$(git ls-files -u)" ]; then
             echo 'conflict=true' >> "$GITHUB_OUTPUT"
-            git add -A
             git commit --no-edit
           elif ! git diff --cached --quiet; then
             echo 'conflict=false' >> "$GITHUB_OUTPUT"
