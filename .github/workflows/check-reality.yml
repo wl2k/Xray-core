@@ -1,0 +1,29 @@
+name: Check reality
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: 30 22 * * *
+
+env:
+  DEP_NAME: github.com/wl2k/reality
+
+jobs:
+  check:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+      - name: Update dependency
+        run: go get -u ${{ env.DEP_NAME }}
+      - name: Push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          DEP_VERSION=$(go list -m ${{ env.DEP_NAME }} | awk '{print $2}')
+          git add -A
+          git commit -m "chore(deps): bump ${{ env.DEP_NAME }} to $DEP_VERSION" || true
+          git push
