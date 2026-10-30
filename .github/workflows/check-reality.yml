@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: 30 22 * * *
 
+permissions:
+  contents: write
+
 env:
   DEP_NAME: github.com/wl2k/reality
 
@@ -19,7 +22,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Update dependency
-        run: go get -u ${{ env.DEP_NAME }}
+        run: go get ${{ env.DEP_NAME }}@latest
       - name: Push
         run: |
           git config user.name 'github-actions[bot]'
