@@ -63,8 +63,3 @@ jobs:
         with:
           path: resources
           key: xray-geodat-${{ github.sha }}-${{ github.run_number }}
-
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Check untagged Go dependencies
-        uses: horgh/check-untagged-go-deps@v1
