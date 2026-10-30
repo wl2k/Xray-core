@@ -3,7 +3,7 @@ name: Check untagged Go dependencies
 on:
   workflow_dispatch:
   schedule:
-    - cron: 22 30 * * *
+    - cron: 30 22 * * *
 
 jobs:
   check:
