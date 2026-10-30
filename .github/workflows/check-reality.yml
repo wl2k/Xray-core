@@ -17,7 +17,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          check-latest: true
+          go-version-file: go.mod
       - name: Update dependency
         run: go get -u ${{ env.DEP_NAME }}
       - name: Push
