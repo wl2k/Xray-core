@@ -22,7 +22,6 @@ on:
 
 jobs:
   geodat:
-    if: github.event.schedule == '30 22 * * *' || github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-slim
     steps:
       - name: Restore Geodat Cache
@@ -64,3 +63,8 @@ jobs:
         with:
           path: resources
           key: xray-geodat-${{ github.sha }}-${{ github.run_number }}
+
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Check untagged Go dependencies
+        uses: horgh/check-untagged-go-deps@v1
