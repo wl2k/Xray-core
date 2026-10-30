@@ -81,6 +81,8 @@ github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zd
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
 github.com/wl2k/reality v0.0.0-20261028100109-03489f1acf01 h1:nPisOoWY81a+EsNJAIsi/uYbLzOsGCOSSLWO7HDF718=
 github.com/wl2k/reality v0.0.0-20261028100109-03489f1acf01/go.mod h1:Haro1Ln0s5nHBwvEcPDjq3aLfoxmm9ncnl3ONnFg20c=
+github.com/wl2k/reality v0.0.0-20261029043126-18b598b9189d h1:dsvcKFVxI0RrynBqpea3exhvuRatZkreAeoMtCOfPAI=
+github.com/wl2k/reality v0.0.0-20261029043126-18b598b9189d/go.mod h1:Haro1Ln0s5nHBwvEcPDjq3aLfoxmm9ncnl3ONnFg20c=
 github.com/wlynxg/anet v0.0.5 h1:J3VJGi1gvo0JwZ/P1/Yc/8p63SoW98B5dHkYDmpgvvU=
 github.com/wlynxg/anet v0.0.5/go.mod h1:eay5PRQr7fIVAMbTbchTnO9gG65Hg/uYGdc7mguHxoA=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=
