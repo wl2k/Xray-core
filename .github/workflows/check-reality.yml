@@ -16,6 +16,8 @@ jobs:
         uses: actions/checkout@v7
       - name: Setup Go
         uses: actions/setup-go@v7
+        with:
+          check-latest: true
       - name: Update dependency
         run: go get -u ${{ env.DEP_NAME }}
       - name: Push
