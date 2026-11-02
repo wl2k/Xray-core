@@ -111,16 +111,13 @@ jobs:
           BASE="$(git rev-parse origin/main)"
           MERGE_RESULT="$(git rev-parse HEAD)"
 
-          # Save all commit messages before changing the branch history.
-          git log --reverse --format='--- %h ---%n%B' \
-            "$BASE..$MERGE_RESULT" \
-            > "$RUNNER_TEMP/sync-commit-messages.txt"
-
+          # Push the merge commit and every upstream commit it brings in as-is:
+          # the pull request must mirror the real upstream history instead of a
+          # squashed copy of it.
           git log --reverse --format='- %h %s' \
             "$BASE..$MERGE_RESULT" \
             > "$RUNNER_TEMP/sync-commit-list.txt"
 
-          # Prepare the PR body in both cases.
           {
             echo "## Included $(wc -l < "$RUNNER_TEMP/sync-commit-list.txt") commits"
             echo
@@ -145,63 +142,10 @@ jobs:
             echo 'Workflow files are excluded from the sync changes.'
           } > "$RUNNER_TEMP/sync-pr-body.md"
 
-          # Detect workflow changes anywhere in the commits being pushed,
-          # even if later commits reverted those changes.
-          WORKFLOW_PATHS="$(
-            git log --full-history --format= --name-only \
-              "$BASE..$MERGE_RESULT" -- .github/workflows/
-          )"
-
-          if [ -z "$WORKFLOW_PATHS" ]; then
-            echo '::notice::No workflow paths in commit history; preserving original commits'
-            echo 'create_pr=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo '::notice::Workflow paths found in commit history; rebuilding a single-commit PR branch'
-
-          # Preserve the final non-workflow changes as a binary-capable patch.
-          git diff --binary "$BASE" "$MERGE_RESULT" \
-            -- . ':(exclude).github/workflows/**' \
-            > "$RUNNER_TEMP/sync.patch"
-
-          # Reset the local branch to the actual PR base.
-          git checkout main
-          git reset --hard "$BASE"
-
-          # Apply only non-workflow changes.
-          if [ -s "$RUNNER_TEMP/sync.patch" ]; then
-            git apply --index "$RUNNER_TEMP/sync.patch"
-          fi
-
-          # Do not create an empty PR if all changes were workflows.
-          if git diff --cached --quiet; then
-            echo '::notice::No non-workflow changes remain; skipping PR'
-            echo 'create_pr=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Include every original commit message in the new commit message.
-          {
-            echo 'chore: sync upstream XTLS/Xray-core (conflict resolution)'
-            echo
-            echo 'Included original commit messages:'
-            echo
-            cat "$RUNNER_TEMP/sync-commit-messages.txt"
-          } > "$RUNNER_TEMP/sync-single-commit-message.txt"
-
-          git commit -F "$RUNNER_TEMP/sync-single-commit-message.txt"
-
-          # Verify the new commit is directly based on origin/main.
-          if [ "$(git rev-parse HEAD^)" != "$BASE" ]; then
-            echo '::error::Single commit is not directly based on origin/main'
-            exit 1
-          fi
-
-          # Verify that the resulting commit does not modify workflow paths.
-          if git diff-tree --no-commit-id --name-only -r HEAD \
-            | grep -q '^\.github/workflows/'; then
-            echo '::error::Workflow changes remain in the new commit'
+          # Safety net: the merged tree must not carry upstream workflow files.
+          # Comparing trees also covers merge commits, which diff-tree ignores.
+          if [ -n "$(git diff --name-only "$BASE" "$MERGE_RESULT" -- .github/workflows/)" ]; then
+            echo '::error::Workflow changes remain in the merge result'
             exit 1
           fi
 
