@@ -47,7 +47,9 @@ jobs:
           git diff --binary "$MERGE_BASE" upstream/main -- \
             . ':(exclude).github/workflows/**' > "$UPSTREAM_PATCH"
 
-          if ! git apply --index --3way "$UPSTREAM_PATCH"; then
+          # An empty patch means the fork already contains every upstream
+          # commit; git apply would reject it, so only apply when needed.
+          if [ -s "$UPSTREAM_PATCH" ] && ! git apply --index --3way "$UPSTREAM_PATCH"; then
             if [ -z "$(git ls-files -u)" ]; then
               echo '::error::Unable to apply upstream changes'
               exit 1
@@ -55,9 +57,18 @@ jobs:
           fi
 
           # Only remaining conflicts outside workflows determine the result.
-          if [ -n "$(git ls-files -u)" ]; then
-            echo 'conflict=true' >> "$GITHUB_OUTPUT"
+          CONFLICTED="$RUNNER_TEMP/sync-conflicted-files.txt"
+          git diff --name-only --diff-filter=U > "$CONFLICTED"
+
+          if [ -s "$CONFLICTED" ]; then
+            # git refuses to commit while the index still holds unmerged
+            # entries, so mark the conflicted files as resolved without
+            # touching the working tree.  The conflict markers are kept on
+            # purpose: the pull request is opened for manual resolution and
+            # must show exactly which hunks still need attention.
+            git diff --name-only -z --diff-filter=U | xargs -0 -r git add --
             git commit --no-edit
+            echo 'conflict=true' >> "$GITHUB_OUTPUT"
           elif ! git diff --cached --quiet; then
             echo 'conflict=false' >> "$GITHUB_OUTPUT"
             git commit --no-edit
@@ -111,9 +122,22 @@ jobs:
 
           # Prepare the PR body in both cases.
           {
-            echo '## Included $(wc -l < "$RUNNER_TEMP/sync-commit-list.txt") commits'
+            echo "## Included $(wc -l < "$RUNNER_TEMP/sync-commit-list.txt") commits"
             echo
             cat "$RUNNER_TEMP/sync-commit-list.txt"
+
+            echo
+            echo '## Conflicts'
+            echo
+            if [ -s "$RUNNER_TEMP/sync-conflicted-files.txt" ]; then
+              echo 'The merge left unresolved conflicts in the following files. They'
+              echo 'are committed as-is, with conflict markers where applicable, so the'
+              echo 'pull request shows every hunk that still needs to be resolved.'
+              echo
+              awk '{ print "- `" $0 "`" }' "$RUNNER_TEMP/sync-conflicted-files.txt"
+            else
+              echo 'None.'
+            fi
 
             echo
             echo '## Notes'
