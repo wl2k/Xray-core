@@ -110,16 +110,6 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unrecognized 'mode': %s. Use 'generate' or 'check'.\n", *mode)
 		os.Exit(1)
-<<<<<<< ours
-	}
-
-	if isCheck {
-		fmt.Println("Checking for out-of-date Protobuf generated files...")
-	}
-
-	var protoFiles []string
-	var pbCount int
-=======
 	}
 
 	if isCheck {
@@ -128,7 +118,6 @@ func main() {
 
 	var protoFiles []string
 	var existingPbFiles []string
->>>>>>> theirs
 	err := filepath.WalkDir(pwd, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -138,11 +127,7 @@ func main() {
 			protoFiles = append(protoFiles, filepath.ToSlash(rel))
 		}
 		if strings.HasSuffix(d.Name(), ".pb.go") {
-<<<<<<< ours
-			pbCount++
-=======
 			existingPbFiles = append(existingPbFiles, path)
->>>>>>> theirs
 		}
 		return nil
 	})
@@ -178,19 +163,8 @@ func main() {
 
 	req := &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: protoFiles,
-<<<<<<< ours
-		Parameter:      proto.String("paths=source_relative"),
-		ProtoFile:      topoSort(fdList),
-		// TODO: replace with unknown in the future
-		CompilerVersion: &pluginpb.Version{
-			Major: proto.Int32(6),
-			Minor: proto.Int32(33),
-			Patch: proto.Int32(5),
-		},
-=======
 		Parameter:      new("paths=source_relative"),
 		ProtoFile:      topoSort(fdList),
->>>>>>> theirs
 	}
 
 	var diffCount int
@@ -243,17 +217,6 @@ func main() {
 		}
 	}
 
-<<<<<<< ours
-	if isCheck {
-		if pbCount != len(generatedFiles) {
-			fmt.Printf("Protobuf file count mismatch: found %d, expected %d. Remove orphaned files and regenerate.\n", pbCount, len(generatedFiles))
-			diffCount++
-		}
-		if diffCount > 0 {
-			fmt.Println("Protobuf generated file problem(s) found.")
-			fmt.Println("Please run 'go run ./infra/vprotogen' to regenerate them.")
-			os.Exit(1)
-=======
 	for _, path := range existingPbFiles {
 		if _, ok := generatedFiles[path]; !ok {
 			diffCount++
@@ -266,7 +229,6 @@ func main() {
 					os.Exit(1)
 				}
 			}
->>>>>>> theirs
 		}
 		fmt.Println("All Protobuf generated file check has been passed.")
 	}

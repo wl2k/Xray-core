@@ -199,9 +199,6 @@ func (d *downloader) fetch(rawURL string, writer io.Writer) error {
 		return errors.New("geodata download exceeds 256 MiB")
 	}
 
-<<<<<<< ours
-	n, err := io.Copy(writer, io.LimitReader(resp.Body, maxDownloadSize+1))
-=======
 	br := bufio.NewReader(resp.Body)
 	header, err := br.Peek(2)
 	if err != nil && err != io.EOF {
@@ -218,7 +215,6 @@ func (d *downloader) fetch(rawURL string, writer io.Writer) error {
 	}
 
 	n, err := io.Copy(writer, io.LimitReader(body, maxDownloadSize+1))
->>>>>>> theirs
 	if err != nil {
 		return err
 	}

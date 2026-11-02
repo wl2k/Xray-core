@@ -32,13 +32,8 @@ require (
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	golang.zx2c4.com/wireguard/windows v1.1.1
-<<<<<<< ours
-	google.golang.org/grpc v1.84.0
-	google.golang.org/protobuf v1.36.11
-=======
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
->>>>>>> theirs
 	h12.io/socks v1.0.3
 	layeh.com/gopher-luar v1.0.11
 	lukechampine.com/blake3 v1.4.1
@@ -63,13 +58,8 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
-<<<<<<< ours
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
-	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.0 // indirect
-=======
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260817212433-ac3dfec99bb1 // indirect
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.2 // indirect
->>>>>>> theirs
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20260122175437-89a5d21be8f0 // indirect
 )

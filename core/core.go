@@ -20,11 +20,7 @@ import (
 var (
 	Version_x byte = 26
 	Version_y byte = 10
-<<<<<<< ours
-	Version_z byte = 29
-=======
 	Version_z byte = 31
->>>>>>> theirs
 )
 
 var (
