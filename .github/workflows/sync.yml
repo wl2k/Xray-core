@@ -61,13 +61,11 @@ jobs:
           git diff --name-only --diff-filter=U > "$CONFLICTED"
 
           if [ -s "$CONFLICTED" ]; then
-            # git refuses to commit while the index still holds unmerged
-            # entries, so mark the conflicted files as resolved without
-            # touching the working tree.  The conflict markers are kept on
-            # purpose: the pull request is opened for manual resolution and
-            # must show exactly which hunks still need attention.
-            git diff --name-only -z --diff-filter=U | xargs -0 -r git add --
-            git commit --no-edit
+            # Do not pre-merge.  A branch that already contains the merge has
+            # nothing left to resolve, so GitHub would never offer its
+            # in-browser conflict editor; keeping the two sides apart lets the
+            # pull request resolve them in the web UI instead.
+            git merge --abort
             echo 'conflict=true' >> "$GITHUB_OUTPUT"
           elif ! git diff --cached --quiet; then
             echo 'conflict=false' >> "$GITHUB_OUTPUT"
@@ -109,13 +107,31 @@ jobs:
         run: |
           git fetch origin main
           BASE="$(git rev-parse origin/main)"
-          MERGE_RESULT="$(git rev-parse HEAD)"
 
-          # Push the merge commit and every upstream commit it brings in as-is:
-          # the pull request must mirror the real upstream history instead of a
-          # squashed copy of it.
-          git log --reverse --format='- %h %s' \
-            "$BASE..$MERGE_RESULT" \
+          # Base the pull request on upstream instead of pre-merging it.  GitHub
+          # only offers its in-browser conflict editor for a branch that still
+          # has to be merged into the base, so the upstream commits are pushed
+          # untouched and every conflict is resolved on the pull request page.
+          git checkout -B sync/upstream upstream/main
+
+          # Take the fork's own workflows back from main.  They must never come
+          # from upstream, and with the same content on both sides they cannot
+          # turn into a conflict inside the pull request.
+          if git cat-file -e "$BASE:.github/workflows" 2>/dev/null; then
+            git rm -r -q --ignore-unmatch .github/workflows
+            git checkout "$BASE" -- .github/workflows
+            if ! git diff --cached --quiet; then
+              git commit -q -m 'chore(ci): keep the workflows of this fork'
+            fi
+          fi
+
+          # Safety net: the branch must not carry upstream workflow files.
+          if [ -n "$(git diff --name-only "$BASE" HEAD -- .github/workflows/)" ]; then
+            echo '::error::Workflow changes remain in the pull request branch'
+            exit 1
+          fi
+
+          git log --reverse --format='- %h %s' "$BASE..HEAD" \
             > "$RUNNER_TEMP/sync-commit-list.txt"
 
           {
@@ -126,28 +142,19 @@ jobs:
             echo
             echo '## Conflicts'
             echo
-            if [ -s "$RUNNER_TEMP/sync-conflicted-files.txt" ]; then
-              echo 'The merge left unresolved conflicts in the following files. They'
-              echo 'are committed as-is, with conflict markers where applicable, so the'
-              echo 'pull request shows every hunk that still needs to be resolved.'
-              echo
-              awk '{ print "- `" $0 "`" }' "$RUNNER_TEMP/sync-conflicted-files.txt"
-            else
-              echo 'None.'
-            fi
+            echo 'Expected to conflict:'
+            echo
+            awk '{ print "- `" $0 "`" }' "$RUNNER_TEMP/sync-conflicted-files.txt"
+            echo
+            echo 'Resolve them with the **Resolve conflicts** button on this pull'
+            echo 'request and commit the merge from the browser; nothing has to be'
+            echo 'fixed locally.'
 
             echo
             echo '## Notes'
             echo
             echo 'Workflow files are excluded from the sync changes.'
           } > "$RUNNER_TEMP/sync-pr-body.md"
-
-          # Safety net: the merged tree must not carry upstream workflow files.
-          # Comparing trees also covers merge commits, which diff-tree ignores.
-          if [ -n "$(git diff --name-only "$BASE" "$MERGE_RESULT" -- .github/workflows/)" ]; then
-            echo '::error::Workflow changes remain in the merge result'
-            exit 1
-          fi
 
           echo 'create_pr=true' >> "$GITHUB_OUTPUT"
 
