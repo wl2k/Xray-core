@@ -11,14 +11,6 @@ on:
   schedule:
     # Update GeoData on every day (22:30 UTC)
     - cron: "30 22 * * *"
-  push:
-    # Prevent triggering update request storm
-    paths:
-      - ".github/workflows/scheduled-assets-update.yml"
-  pull_request:
-    # Prevent triggering update request storm
-    paths:
-      - ".github/workflows/scheduled-assets-update.yml"
 
 jobs:
   geodat:
