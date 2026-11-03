@@ -71,7 +71,7 @@ jobs:
             echo 'conflict=false' >> "$GITHUB_OUTPUT"
             git commit --no-edit
           else
-            echo 'conflict=false' >> "$GITHUB_OUTPUT"
+            echo 'conflict=none' >> "$GITHUB_OUTPUT"
             git merge --abort 2>/dev/null || true
           fi
 
@@ -126,7 +126,6 @@ jobs:
           fi
 
           # Push tag by tag so a rejected tag reports its own name.
-          skipped=''
           while read -r tag; do
             if out="$(git push origin "refs/tags/$tag:refs/tags/$tag" 2>&1)"; then
               echo "$out"
@@ -140,17 +139,12 @@ jobs:
             # sync failure, so the run stays green.
             if printf '%s\n' "$out" | grep -q 'GH013'; then
               echo "::warning::Tag $tag was rejected by a repository ruleset (GH013); skipping it"
-              skipped="$skipped $tag"
               continue
             fi
 
             echo "::error::Failed to push tag $tag"
             exit 1
           done < "$RUNNER_TEMP/new-tags.txt"
-
-          if [ -n "$skipped" ]; then
-            echo "::notice::Skipped tags blocked by repository rules:$skipped"
-          fi
 
       - name: Prepare conflict PR
         id: prepare-pr
