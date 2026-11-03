@@ -71,7 +71,7 @@ jobs:
             echo 'conflict=false' >> "$GITHUB_OUTPUT"
             git commit --no-edit
           else
-            echo 'conflict=none' >> "$GITHUB_OUTPUT"
+            echo 'conflict=false' >> "$GITHUB_OUTPUT"
             git merge --abort 2>/dev/null || true
           fi
 
