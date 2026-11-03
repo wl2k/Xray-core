@@ -90,16 +90,51 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check git-filter-repo
 
-          # Rewrite tag histories only. Do not rewrite main.
+          # Only new tags are rewritten. Re-pointing a tag that is already
+          # published would rewrite published history and start a build for
+          # every release that exists.
+          git ls-remote --tags --refs origin \
+            | cut -f2 | sed 's|^refs/tags/||' | LC_ALL=C sort \
+            > "$RUNNER_TEMP/published-tags.txt"
+
+          git tag | LC_ALL=C sort \
+            | comm -23 - "$RUNNER_TEMP/published-tags.txt" \
+            > "$RUNNER_TEMP/new-tags.txt"
+
+          if [ ! -s "$RUNNER_TEMP/new-tags.txt" ]; then
+            echo '::notice::No new upstream tags'
+            exit 0
+          fi
+
+          echo 'New tags:'
+          sed 's/^/  /' "$RUNNER_TEMP/new-tags.txt"
+
+          # `--refs refs/tags/*` matches nothing: git does not expand globs in
+          # revision arguments, so the refs have to be listed explicitly.
           git filter-repo --force \
-            --refs refs/tags/* \
+            --refs $(sed 's|^|refs/tags/|' "$RUNNER_TEMP/new-tags.txt") \
             --path .github/workflows/ \
             --invert-paths
+
+          while read -r tag; do
+            if [ -n "$(git ls-tree -r --name-only "refs/tags/$tag" -- .github/workflows)" ]; then
+              echo "::error::Workflow files remain in $tag"
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/new-tags.txt"
 
       - name: Push sanitized tags
         if: steps.merge.outputs.conflict == 'false'
         run: |
-          git push origin 'refs/tags/*:refs/tags/*'
+          if [ ! -s "$RUNNER_TEMP/new-tags.txt" ]; then
+            echo '::notice::Nothing to push'
+            exit 0
+          fi
+
+          # Push tag by tag so a rejected tag reports its own name.
+          while read -r tag; do
+            git push origin "refs/tags/$tag:refs/tags/$tag"
+          done < "$RUNNER_TEMP/new-tags.txt"
 
       - name: Prepare conflict PR
         id: prepare-pr
