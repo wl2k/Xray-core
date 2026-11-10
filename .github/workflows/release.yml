@@ -1,5 +1,8 @@
 name: Build and Release
 
+# `name` is a literal, only `run-name` evaluates expressions.
+run-name: Build and Release ${{ inputs.tag || github.ref_name }}
+
 on:
   push:
     tags:
