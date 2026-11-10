@@ -63,7 +63,64 @@ jobs:
           # deleted workflow that upstream has modified.
           git merge --no-commit --no-ff -s ours upstream/main
 
-          git diff --binary "$MERGE_BASE" upstream/main -- \
+          # Upstream requires github.com/xtls/reality while this fork uses the
+          # renamed github.com/wl2k/reality.  Swapping only the module path is
+          # not enough: the upstream commit declares the old path in its own
+          # go.mod, so Go rejects the requirement with "module declares its
+          # path as ...".  Substituting the fork's own line does not help
+          # either, because it sits in the same hunk as the neighbouring
+          # dependency bumps and would still collide with the fork's pin.
+          # Drop upstream's change to that requirement instead: rebuild the
+          # upstream copy of go.mod/go.sum with the merge-base lines and diff
+          # that tree, so the patch never touches reality and the fork's pin
+          # always survives.
+          BASE_MOD_LINE="$(git show "$MERGE_BASE":go.mod \
+            | grep -E '^[[:space:]]*github\.com/(xtls|wl2k)/reality[[:space:]]' || true)"
+          BASE_SUM_LINES="$(git show "$MERGE_BASE":go.sum \
+            | grep -E '^github\.com/(xtls|wl2k)/reality ' || true)"
+
+          normalize_go_mod() {
+            sed -E "s#^[[:space:]]*github\.com/(xtls|wl2k)/reality[[:space:]]+[^[:space:]]+.*\$#${BASE_MOD_LINE}#"
+          }
+
+          normalize_go_sum() {
+            { grep -vE '^github\.com/(xtls|wl2k)/reality ' || true
+              printf '%s\n' "$BASE_SUM_LINES"
+            } | grep -v '^$' | LC_ALL=C sort -u
+          }
+
+          if [ -n "$BASE_MOD_LINE" ]; then
+            # Build the normalized upstream tree in a throwaway index so the
+            # real index keeps the merge state.
+            GIT_INDEX_FILE="$RUNNER_TEMP/upstream.index"
+            export GIT_INDEX_FILE
+            git read-tree upstream/main
+
+            # Compare the rewritten blob with the original instead of piping
+            # into `grep -q`: grep exits early, git show then dies of SIGPIPE
+            # and `set -o pipefail` turns the whole condition false.
+            MOD_BLOB="$(git show upstream/main:go.mod | normalize_go_mod \
+              | git hash-object -w --stdin)"
+            if [ "$MOD_BLOB" != "$(git rev-parse upstream/main:go.mod)" ]; then
+              git update-index --cacheinfo "100644,$MOD_BLOB,go.mod"
+            fi
+
+            SUM_BLOB="$(git show upstream/main:go.sum | normalize_go_sum \
+              | git hash-object -w --stdin)"
+            if [ "$SUM_BLOB" != "$(git rev-parse upstream/main:go.sum)" ]; then
+              git update-index --cacheinfo "100644,$SUM_BLOB,go.sum"
+            fi
+
+            UPSTREAM_TREE="$(git write-tree)"
+            unset GIT_INDEX_FILE
+
+            echo '::notice::Dropped upstream changes to the reality requirement'
+          else
+            UPSTREAM_TREE="$(git rev-parse 'upstream/main^{tree}')"
+            echo '::warning::No reality requirement at the merge base; upstream go.mod left as is'
+          fi
+
+          git diff --binary "$MERGE_BASE" "$UPSTREAM_TREE" -- \
             . ':(exclude).github/workflows/**' > "$UPSTREAM_PATCH"
 
           # An empty patch means the fork already contains every upstream
