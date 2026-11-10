@@ -71,22 +71,14 @@ jobs:
           # either, because it sits in the same hunk as the neighbouring
           # dependency bumps and would still collide with the fork's pin.
           # Drop upstream's change to that requirement instead: rebuild the
-          # upstream copy of go.mod/go.sum with the merge-base lines and diff
-          # that tree, so the patch never touches reality and the fork's pin
-          # always survives.
+          # upstream copy of go.mod with the merge-base line and diff that
+          # tree, so the patch never touches reality and the fork's pin always
+          # survives.
           BASE_MOD_LINE="$(git show "$MERGE_BASE":go.mod \
             | grep -E '^[[:space:]]*github\.com/(xtls|wl2k)/reality[[:space:]]' || true)"
-          BASE_SUM_LINES="$(git show "$MERGE_BASE":go.sum \
-            | grep -E '^github\.com/(xtls|wl2k)/reality ' || true)"
 
           normalize_go_mod() {
             sed -E "s#^[[:space:]]*github\.com/(xtls|wl2k)/reality[[:space:]]+[^[:space:]]+.*\$#${BASE_MOD_LINE}#"
-          }
-
-          normalize_go_sum() {
-            { grep -vE '^github\.com/(xtls|wl2k)/reality ' || true
-              printf '%s\n' "$BASE_SUM_LINES"
-            } | grep -v '^$' | LC_ALL=C sort -u
           }
 
           if [ -n "$BASE_MOD_LINE" ]; then
@@ -105,12 +97,6 @@ jobs:
               git update-index --cacheinfo "100644,$MOD_BLOB,go.mod"
             fi
 
-            SUM_BLOB="$(git show upstream/main:go.sum | normalize_go_sum \
-              | git hash-object -w --stdin)"
-            if [ "$SUM_BLOB" != "$(git rev-parse upstream/main:go.sum)" ]; then
-              git update-index --cacheinfo "100644,$SUM_BLOB,go.sum"
-            fi
-
             UPSTREAM_TREE="$(git write-tree)"
             unset GIT_INDEX_FILE
 
@@ -120,8 +106,16 @@ jobs:
             echo '::warning::No reality requirement at the merge base; upstream go.mod left as is'
           fi
 
+          # go.sum is a set, not a document: this fork still lists versions
+          # that upstream has dropped, so "they delete, we keep" collides on
+          # every dependency bump.  It is also not sorted in C order (Go sorts
+          # by semver, so v0.2.0 precedes v0.10.0), which makes any re-sort
+          # invent differences.  Keep go.sum out of the patch and union it
+          # afterwards instead; extra entries are harmless, missing ones are
+          # not.
           git diff --binary "$MERGE_BASE" "$UPSTREAM_TREE" -- \
-            . ':(exclude).github/workflows/**' > "$UPSTREAM_PATCH"
+            . ':(exclude).github/workflows/**' ':(exclude)go.sum' \
+            > "$UPSTREAM_PATCH"
 
           # An empty patch means the fork already contains every upstream
           # commit; git apply would reject it, so only apply when needed.
@@ -131,6 +125,18 @@ jobs:
               exit 1
             fi
           fi
+
+          git show "$MERGE_BASE":go.sum > "$RUNNER_TEMP/base.go.sum"
+          git show upstream/main:go.sum \
+            | { grep -vE '^github\.com/(xtls|wl2k)/reality ' || true; } \
+            > "$RUNNER_TEMP/upstream.go.sum"
+          git merge-file --union go.sum \
+            "$RUNNER_TEMP/base.go.sum" "$RUNNER_TEMP/upstream.go.sum" || true
+          # --union concatenates both sides, so drop any duplicated line while
+          # keeping the original order.
+          awk '!seen[$0]++' go.sum > "$RUNNER_TEMP/go.sum.merged"
+          mv "$RUNNER_TEMP/go.sum.merged" go.sum
+          git add -- go.sum
 
           # Only remaining conflicts outside workflows determine the result.
           CONFLICTED="$RUNNER_TEMP/sync-conflicted-files.txt"
@@ -283,6 +289,9 @@ jobs:
         if: steps.prepare-pr.outputs.create_pr == 'true'
         uses: peter-evans/create-pull-request@v8.1.1
         with:
+          # The step above leaves HEAD on sync/upstream, so the base branch
+          # cannot be inferred from the checked out branch.
+          base: main
           branch: sync/upstream
           delete-branch: true
           title: 'chore: sync upstream XTLS/Xray-core (conflict resolution)'
