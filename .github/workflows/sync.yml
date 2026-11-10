@@ -11,10 +11,29 @@ permissions:
   pull-requests: write
 
 env:
+  DEP_NAME: github.com/wl2k/reality
   UPSTREAM: XTLS/Xray-core
 
 jobs:
+  check-reality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Update dependency
+        run: go get ${{ env.DEP_NAME }}@latest
+      - name: Push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          DEP_VERSION=$(go list -m ${{ env.DEP_NAME }} | awk '{print $2}')
+          git add -A
+          git commit -m "chore(deps): bump ${{ env.DEP_NAME }} to $DEP_VERSION" || true
+          git push
   sync:
+    needs: check-reality
     runs-on: ubuntu-slim
     timeout-minutes: 15
     steps:
