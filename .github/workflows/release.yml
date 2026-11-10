@@ -1,6 +1,9 @@
 name: Build and Release
 
 on:
+  push:
+    tags:
+      - v*
   # The sync workflow strips .github/workflows from the tags it mirrors, and
   # GitHub only reads workflow files from the pushed ref, so pushing such a
   # tag can never start this workflow.  The sync dispatches it explicitly
@@ -8,6 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
+        description: Tag to build and release
         required: true
         type: string
 
@@ -15,6 +19,18 @@ jobs:
   check-assets:
     runs-on: ubuntu-slim
     steps:
+      - name: Check the tag exists
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          # A dispatch can name a tag that was never pushed, and checking out a
+          # missing ref only produces three opaque checkout failures.
+          if ! git ls-remote --exit-code --tags \
+            "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${TAG}"; then
+            echo "::error::Tag ${TAG} does not exist in ${GITHUB_REPOSITORY}"
+            exit 1
+          fi
+
       - name: Restore Geodat Cache
         uses: actions/cache/restore@v6
         with:
@@ -106,6 +122,7 @@ jobs:
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: ./Xray-${{ env.ASSET_NAME }}.zip*
 
       - name: Upload files to Artifacts

@@ -121,6 +121,23 @@ jobs:
             . ':(exclude).github/workflows/**' ':(exclude)go.sum' \
             > "$UPSTREAM_PATCH"
 
+          # Upstream's hunks routinely carry the reality requirement as a
+          # context line, while this fork pins a different module on that very
+          # line, so `git apply --3way` reports a conflict on every dependency
+          # bump next to it.  Make the fork's line look like the merge-base one
+          # while the patch is applied, then put the pin back.
+          FORK_MOD_LINE="$(grep -E '^[[:space:]]*github\.com/(xtls|wl2k)/reality[[:space:]]' go.mod || true)"
+          RESTORE_MOD=false
+          if [ -n "$FORK_MOD_LINE" ] && [ -n "$BASE_MOD_LINE" ] \
+            && [ "$FORK_MOD_LINE" != "$BASE_MOD_LINE" ]; then
+            awk -v from="$FORK_MOD_LINE" -v to="$BASE_MOD_LINE" \
+              '$0 == from { print to; next } { print }' go.mod \
+              > "$RUNNER_TEMP/go.mod.tmp"
+            mv "$RUNNER_TEMP/go.mod.tmp" go.mod
+            git add -- go.mod
+            RESTORE_MOD=true
+          fi
+
           # An empty patch means the fork already contains every upstream
           # commit; git apply would reject it, so only apply when needed.
           if [ -s "$UPSTREAM_PATCH" ] && ! git apply --index --3way "$UPSTREAM_PATCH"; then
@@ -130,15 +147,32 @@ jobs:
             fi
           fi
 
-          git show "$MERGE_BASE":go.sum > "$RUNNER_TEMP/base.go.sum"
+          if [ "$RESTORE_MOD" = true ]; then
+            if [ -n "$(git ls-files -u -- go.mod)" ]; then
+              # A real conflict: leave go.mod unmerged so the run opens the
+              # conflict pull request instead of silently resolving it.
+              echo '::warning::go.mod conflicted; the fork pin stays unresolved'
+            else
+              awk -v from="$BASE_MOD_LINE" -v to="$FORK_MOD_LINE" \
+                '$0 == from { print to; next } { print }' go.mod \
+                > "$RUNNER_TEMP/go.mod.tmp"
+              mv "$RUNNER_TEMP/go.mod.tmp" go.mod
+              git add -- go.mod
+            fi
+          fi
+
           git show upstream/main:go.sum \
             | { grep -vE '^github\.com/(xtls|wl2k)/reality ' || true; } \
             > "$RUNNER_TEMP/upstream.go.sum"
-          git merge-file --union go.sum \
-            "$RUNNER_TEMP/base.go.sum" "$RUNNER_TEMP/upstream.go.sum" || true
-          # --union concatenates both sides, so drop any duplicated line while
-          # keeping the original order.
-          awk '!seen[$0]++' go.sum > "$RUNNER_TEMP/go.sum.merged"
+
+          # A real set union: keep every entry this fork already has and append
+          # the upstream ones it is missing.  `git merge-file --union` cannot be
+          # used here -- it keeps both sides of a *conflict* but silently
+          # applies a clean deletion, so a dependency this fork still needs
+          # would vanish from go.sum and the build would fail with "missing
+          # go.sum entry".
+          awk '!seen[$0]++' go.sum "$RUNNER_TEMP/upstream.go.sum" \
+            > "$RUNNER_TEMP/go.sum.merged"
           mv "$RUNNER_TEMP/go.sum.merged" go.sum
           git add -- go.sum
 
@@ -166,7 +200,10 @@ jobs:
         run: git push origin HEAD:main
 
       - name: Remove workflows from tag histories
-        if: steps.merge.outputs.conflict == 'false'
+        # Tags do not depend on the merge: run this even when the fork is
+        # already up to date, otherwise a tag that a ruleset rejected is never
+        # retried and stays missing forever.
+        if: steps.merge.outputs.conflict != 'true'
         run: |
           python3 -m pip install --disable-pip-version-check git-filter-repo
 
@@ -177,7 +214,12 @@ jobs:
             | cut -f2 | sed 's|^refs/tags/||' | LC_ALL=C sort \
             > "$RUNNER_TEMP/published-tags.txt"
 
-          git tag | LC_ALL=C sort \
+          # Take the tag list from upstream instead of from the local clone.
+          # The clone only auto-follows a tag when the commit it points at
+          # happens to be fetched, so a tag sitting on a commit this fork
+          # already has would be missed and never pushed.
+          git ls-remote --tags --refs upstream \
+            | cut -f2 | sed 's|^refs/tags/||' | LC_ALL=C sort \
             | comm -23 - "$RUNNER_TEMP/published-tags.txt" \
             > "$RUNNER_TEMP/new-tags.txt"
 
@@ -188,6 +230,10 @@ jobs:
 
           echo 'New tags:'
           sed 's/^/  /' "$RUNNER_TEMP/new-tags.txt"
+
+          # Fetch exactly the tags that are missing locally.
+          git fetch upstream \
+            $(sed -E 's|(.+)|+refs/tags/\1:refs/tags/\1|' "$RUNNER_TEMP/new-tags.txt")
 
           # `--refs refs/tags/*` matches nothing: git does not expand globs in
           # revision arguments, so the refs have to be listed explicitly.
@@ -204,7 +250,7 @@ jobs:
           done < "$RUNNER_TEMP/new-tags.txt"
 
       - name: Push sanitized tags
-        if: steps.merge.outputs.conflict == 'false'
+        if: steps.merge.outputs.conflict != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
