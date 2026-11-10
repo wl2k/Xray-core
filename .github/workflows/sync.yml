@@ -21,6 +21,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
       - name: Update dependency
         run: go get ${{ env.DEP_NAME }}@latest
       - name: Push
@@ -201,16 +205,22 @@ jobs:
 
       - name: Push sanitized tags
         if: steps.merge.outputs.conflict == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -s "$RUNNER_TEMP/new-tags.txt" ]; then
             echo '::notice::Nothing to push'
             exit 0
           fi
 
+          PUSHED="$RUNNER_TEMP/pushed-tags.txt"
+          : > "$PUSHED"
+
           # Push tag by tag so a rejected tag reports its own name.
           while read -r tag; do
             if out="$(git push origin "refs/tags/$tag:refs/tags/$tag" 2>&1)"; then
               echo "$out"
+              echo "$tag" >> "$PUSHED"
               continue
             fi
 
@@ -227,6 +237,22 @@ jobs:
             echo "::error::Failed to push tag $tag"
             exit 1
           done < "$RUNNER_TEMP/new-tags.txt"
+
+          # These tags carry no .github/workflows (the step above strips them)
+          # and GitHub only reads workflow files from the pushed ref, so the
+          # push itself can never start release.yml.  A push made with
+          # GITHUB_TOKEN would not start another workflow either.  Dispatch it
+          # explicitly from main and pass the tag along.
+          if [ ! -s "$PUSHED" ]; then
+            exit 0
+          fi
+
+          while read -r tag; do
+            echo "Dispatching release.yml for $tag"
+            if ! gh workflow run release.yml -f tag="$tag"; then
+              echo "::warning::Unable to dispatch release.yml for $tag"
+            fi
+          done < "$PUSHED"
 
       - name: Prepare conflict PR
         id: prepare-pr

@@ -1,9 +1,15 @@
 name: Build and Release
 
 on:
-  push:
-    tags:
-      - v*
+  # The sync workflow strips .github/workflows from the tags it mirrors, and
+  # GitHub only reads workflow files from the pushed ref, so pushing such a
+  # tag can never start this workflow.  The sync dispatches it explicitly
+  # instead, passing the tag to build.
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
 
 jobs:
   check-assets:
@@ -48,6 +54,8 @@ jobs:
     steps:
       - name: Checkout codebase
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Show workflow information
         run: |
