@@ -253,6 +253,11 @@ jobs:
         if: steps.merge.outputs.conflict != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # gh infers the repository from the git remotes, and with an upstream
+          # remote present it picks XTLS/Xray-core, which this token cannot
+          # dispatch to (HTTP 403: Resource not accessible by integration).
+          # Pin it to the repository the workflow actually runs in.
+          GH_REPO: ${{ github.repository }}
         run: |
           if [ ! -s "$RUNNER_TEMP/new-tags.txt" ]; then
             echo '::notice::Nothing to push'
@@ -295,10 +300,31 @@ jobs:
 
           while read -r tag; do
             echo "Dispatching release.yml for $tag"
-            if ! gh workflow run release.yml -f tag="$tag"; then
-              echo "::warning::Unable to dispatch release.yml for $tag"
+
+            # Retry a couple of times: a dispatch can fail transiently, and a
+            # tag is never dispatched again once it is published, so a single
+            # hiccup would leave that release missing for good.
+            dispatched=false
+            for attempt in 1 2 3; do
+              if gh workflow run release.yml -f tag="$tag"; then
+                dispatched=true
+                break
+              fi
+              echo "::warning::Dispatch attempt $attempt for $tag failed"
+              sleep $((attempt * 3))
+            done
+
+            if [ "$dispatched" = false ]; then
+              # Fatal on purpose: the tag is already pushed, so the next run
+              # will not try again and the release would silently never exist.
+              echo "::error::Unable to dispatch release.yml for $tag"
+              FAILED=true
             fi
           done < "$PUSHED"
+
+          if [ "${FAILED:-false}" = true ]; then
+            exit 1
+          fi
 
       - name: Prepare conflict PR
         id: prepare-pr
