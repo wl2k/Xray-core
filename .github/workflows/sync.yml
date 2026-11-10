@@ -26,7 +26,9 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Update dependency
-        run: go get ${{ env.DEP_NAME }}@latest
+        run: |
+          go get ${{ env.DEP_NAME }}@latest
+          go mod tidy
       - name: Push
         run: |
           git config user.name 'github-actions[bot]'
