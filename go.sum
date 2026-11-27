@@ -190,3 +190,5 @@ golang.org/x/tools v0.52.0 h1:ryxg4U63oaUYk7uOLTF37n43f4qgtGvqV4Ioit1BaEs=
 golang.org/x/tools v0.52.0/go.mod h1:ItcP5UNaVGG+Yc4eIYmaFLNJ4soEopkx5Y2d4lcEurs=
 lukechampine.com/blake3 v1.5.1 h1:ITRyxe0LlLZcPUWOZ3Taz8mbug/ptn7jbbeeij5ZiPo=
 lukechampine.com/blake3 v1.5.1/go.mod h1:QFosUxmjB8mnrWFSNwKmvxHpfY72bmD2tQ0kBMM3kwo=
+github.com/apernet/quic-go v0.65.1-0.20261109005002-2895f039137a h1:uCIlOCbXUtBkFk47HxIkQieCkV+zKv5VCDawLtj3Pkc=
+github.com/apernet/quic-go v0.65.1-0.20261109005002-2895f039137a/go.mod h1:J7UZVOMF2M1LiE3iiUZWPuy8YCPAcLJOwVURrfJCvc0=
